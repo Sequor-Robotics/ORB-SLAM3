@@ -1743,7 +1743,7 @@ bool Tracking::PredictStateIMU()
         return false;
     }
 
-    if(mbMapUpdated && mpLastKeyFrame)
+    if(mbMapUpdated && mpLastKeyFrame && mpImuPreintegratedFromLastKF)
     {
         const Eigen::Vector3f twb1 = mpLastKeyFrame->GetImuPosition();
         const Eigen::Matrix3f Rwb1 = mpLastKeyFrame->GetImuRotation();
@@ -1761,7 +1761,7 @@ bool Tracking::PredictStateIMU()
         mCurrentFrame.mPredBias = mCurrentFrame.mImuBias;
         return true;
     }
-    else if(!mbMapUpdated)
+    else if(!mbMapUpdated && mCurrentFrame.mpImuPreintegratedFrame)
     {
         const Eigen::Vector3f twb1 = mLastFrame.GetImuPosition();
         const Eigen::Matrix3f Rwb1 = mLastFrame.GetImuRotation();
@@ -2360,10 +2360,9 @@ void Tracking::StereoInitialization()
         // Set Frame pose to the origin (In case of inertial SLAM to imu)
         if (mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
         {
-            Eigen::Matrix3f Rwb0 = mCurrentFrame.mImuCalib.mTcb.rotationMatrix();
-            Eigen::Vector3f twb0 = mCurrentFrame.mImuCalib.mTcb.translation();
-            Eigen::Vector3f Vwb0;
-            Vwb0.setZero();
+            Eigen::Matrix3f Rwb0 = Eigen::Matrix3f::Identity(); // Original: mCurrentFrame.mImuCalib.mTcb.rotationMatrix();
+            Eigen::Vector3f twb0 = Eigen::Vector3f::Zero(); // Original: mCurrentFrame.mImuCalib.mTcb.translation();
+            Eigen::Vector3f Vwb0 = Eigen::Vector3f::Zero();
             mCurrentFrame.SetImuPoseVelocity(Rwb0, twb0, Vwb0);
         }
         else
@@ -2979,15 +2978,20 @@ bool Tracking::TrackLocalMap()
         else
         {
             // if(!mbMapUpdated && mState == OK) //  && (mnMatchesInliers>30))
-            if(!mbMapUpdated) //  && (mnMatchesInliers>30))
+            if(!mbMapUpdated && mCurrentFrame.mpImuPreintegratedFrame) //  && (mnMatchesInliers>30))
             {
                 Verbose::PrintMess("TLM: PoseInertialOptimizationLastFrame ", Verbose::VERBOSITY_DEBUG);
                 inliers = Optimizer::PoseInertialOptimizationLastFrame(&mCurrentFrame); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
             }
-            else
+            else if(mCurrentFrame.mpImuPreintegrated)
             {
                 Verbose::PrintMess("TLM: PoseInertialOptimizationLastKeyFrame ", Verbose::VERBOSITY_DEBUG);
                 inliers = Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
+            }
+            else
+            {
+                Verbose::PrintMess("TLM: No IMU preintegration available, using PoseOptimization", Verbose::VERBOSITY_DEBUG);
+                Optimizer::PoseOptimization(&mCurrentFrame);
             }
         }
     }

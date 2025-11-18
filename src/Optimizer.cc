@@ -431,6 +431,9 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                 nNonFixed++;
             VP->setFixed(bFixed);
         }
+        if (i==0){ // Fix the first keyframe at the origin
+            VP->setFixed(true);
+        }
         optimizer.addVertex(VP);
 
         if(pKFi->bImu)
@@ -5079,19 +5082,24 @@ int Optimizer::PoseInertialOptimizationLastFrame(Frame *pFrame, bool bRecInit)
     ear->setInformation(InfoA);
     optimizer.addEdge(ear);
 
-    if (!pFp->mpcpi)
-        Verbose::PrintMess("pFp->mpcpi does not exist!!!\nPrevious Frame " + to_string(pFp->mnId), Verbose::VERBOSITY_NORMAL);
+    EdgePriorPoseImu* ep = nullptr;
+    if (pFp->mpcpi)
+    {
+        ep = new EdgePriorPoseImu(pFp->mpcpi);
 
-    EdgePriorPoseImu* ep = new EdgePriorPoseImu(pFp->mpcpi);
-
-    ep->setVertex(0,VPk);
-    ep->setVertex(1,VVk);
-    ep->setVertex(2,VGk);
-    ep->setVertex(3,VAk);
-    g2o::RobustKernelHuber* rkp = new g2o::RobustKernelHuber;
-    ep->setRobustKernel(rkp);
-    rkp->setDelta(5);
-    optimizer.addEdge(ep);
+        ep->setVertex(0,VPk);
+        ep->setVertex(1,VVk);
+        ep->setVertex(2,VGk);
+        ep->setVertex(3,VAk);
+        g2o::RobustKernelHuber* rkp = new g2o::RobustKernelHuber;
+        ep->setRobustKernel(rkp);
+        rkp->setDelta(5);
+        optimizer.addEdge(ep);
+    }
+    else
+    {
+        Verbose::PrintMess("pFp->mpcpi does not exist, skipping prior pose constraint. Previous Frame " + to_string(pFp->mnId), Verbose::VERBOSITY_NORMAL);
+    }
 
     // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
     // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
@@ -5247,7 +5255,8 @@ int Optimizer::PoseInertialOptimizationLastFrame(Frame *pFrame, bool bRecInit)
     H.block<3,3>(27,12) += Har.block<3,3>(3,0);
     H.block<3,3>(27,27) += Har.block<3,3>(3,3);
 
-    H.block<15,15>(0,0) += ep->GetHessian();
+    if (ep)
+        H.block<15,15>(0,0) += ep->GetHessian();
 
     int tot_in = 0, tot_out = 0;
     for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
